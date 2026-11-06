@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "clickup": {
+      "command": "python3",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/clickup_mcp_server.py"
+      ]
+    }
+  }
+}

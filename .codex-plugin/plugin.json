@@ -1,0 +1,7 @@
+{
+  "name": "clickup-mcp",
+  "version": "0.1.0",
+  "description": "Read ClickUp tasks and route them to local Codex projects.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}
