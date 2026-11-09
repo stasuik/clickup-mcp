@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local MCP server exposing ClickUp tasks to Codex."""
+"""Local MCP server exposing read-only ClickUp workflows to MCP agents."""
 
 from __future__ import annotations
 
@@ -19,10 +19,10 @@ import clickup_agent
 
 clickup_agent.load_env()
 
-SERVER_INFO = {"name": "local-clickup", "version": "0.1.0"}
+SERVER_INFO = {"name": "local-clickup", "version": "0.2.0"}
 LOCAL_PROJECTS_ROOT = Path(os.environ.get("CLICKUP_LOCAL_PROJECTS_ROOT", str(Path.home() / "localhost-projects"))).expanduser()
 PROJECT_MAP_PATH = Path(os.environ.get("CLICKUP_PROJECT_MAP", str(clickup_agent.CONFIG_DIR / "project_map.json"))).expanduser()
-CODEX_BIN = os.environ.get("CLICKUP_CODEX_BIN", "codex")
+AGENT_BIN = os.environ.get("CLICKUP_AGENT_BIN") or os.environ.get("CLICKUP_CODEX_BIN", "codex")
 
 
 def json_text(payload: Any) -> dict[str, Any]:
@@ -168,7 +168,7 @@ def task_prompt(task: dict[str, Any], project_path: Path, extra_instructions: st
     due = clickup_agent.fmt_date(task.get("due_date"))
     description = task.get("description") or task.get("text_content") or ""
     parts = [
-        "Выполни задачу из ClickUp в этом локальном проекте.",
+        "Выполни задачу из ClickUp в этом локальном проекте с помощью подключённого coding agent.",
         "",
         f"Проект: {project_path}",
         f"Задача: {task.get('name')}",
@@ -197,7 +197,7 @@ def route_task(arguments: dict[str, Any]) -> dict[str, Any]:
     task = find_task_by_query(str(query), days=arguments.get("days", 365))
     project_path, match = resolve_project(task)
     prompt = task_prompt(task, project_path, arguments.get("extra_instructions"))
-    command = f"cd {shlex.quote(str(project_path))} && {shlex.quote(CODEX_BIN)} {shlex.quote(prompt)}"
+    command = f"cd {shlex.quote(str(project_path))} && {shlex.quote(AGENT_BIN)} {shlex.quote(prompt)}"
     return {
         "task": {
             "id": task.get("id"),
@@ -210,6 +210,7 @@ def route_task(arguments: dict[str, Any]) -> dict[str, Any]:
         "match": match,
         "prompt": prompt,
         "command": command,
+        "agent_command": AGENT_BIN,
     }
 
 
@@ -217,12 +218,26 @@ def tool_route_task(arguments: dict[str, Any]) -> dict[str, Any]:
     return json_text(route_task(arguments))
 
 
+def tool_task_prompt(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Prepare a portable agent prompt without starting a process."""
+    route = route_task(arguments)
+    return json_text(
+        {
+            "task": route["task"],
+            "project_path": route["project_path"],
+            "match": route["match"],
+            "prompt": route["prompt"],
+            "next_step": "Run this prompt in the selected project with the user's preferred agent.",
+        }
+    )
+
+
 def tool_launch_codex_for_task(arguments: dict[str, Any]) -> dict[str, Any]:
     route = route_task(arguments)
     command = route["command"]
     dry_run = bool(arguments.get("dry_run", False))
     if not dry_run and sys.platform != "darwin":
-        return json_text({"launched": False, "reason": "Automatic Terminal launch is macOS-only; run command manually.", **route})
+        return json_text({"launched": False, "reason": "Automatic Terminal launch is macOS-only; run the returned command manually.", **route})
     if not dry_run:
         script = f'tell application "Terminal"\nactivate\ndo script {json.dumps(command)}\nend tell'
         subprocess.run(["osascript", "-e", script], check=True)
@@ -322,7 +337,7 @@ TOOLS = {
         "handler": tool_task_summary,
     },
     "clickup_route_task": {
-        "description": "Find a ClickUp task and resolve which local project directory should handle it.",
+        "description": "Find a ClickUp task and resolve which local project directory should handle it. Does not launch an agent.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -346,8 +361,33 @@ TOOLS = {
         },
         "handler": tool_route_task,
     },
+    "clickup_task_prompt": {
+        "description": "Find a ClickUp task, resolve its local project, and prepare a portable prompt for the user's preferred coding agent without launching it.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "ClickUp task ID, URL, or text query matching the task name.",
+                },
+                "days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 365,
+                    "description": "Search window in days when task is not an ID or URL.",
+                },
+                "extra_instructions": {
+                    "type": "string",
+                    "description": "Additional instruction to include in the prepared prompt.",
+                },
+            },
+            "required": ["task"],
+            "additionalProperties": False,
+        },
+        "handler": tool_task_prompt,
+    },
     "clickup_launch_codex_for_task": {
-        "description": "Find a ClickUp task, resolve its local project, and open a new Terminal running Codex with the task prompt.",
+        "description": "Codex-specific adapter: find a ClickUp task, resolve its local project, and open a new macOS Terminal running Codex with the task prompt. Use clickup_task_prompt for other agents.",
         "inputSchema": {
             "type": "object",
             "properties": {

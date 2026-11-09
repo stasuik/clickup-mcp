@@ -1,28 +1,87 @@
-# ClickUp MCP for Codex
+# ClickUp MCP for MCP-compatible agents
 
-Локальный MCP-сервер и skill для Codex: сводка задач ClickUp, поиск задачи, привязка к локальному проекту и запуск Codex с описанием задачи. Python 3.10+, Git и Codex CLI; сторонние Python-библиотеки не нужны.
+Локальный read-only MCP-сервер и skill для работы с задачами ClickUp из Codex, Claude Code, Cursor, VS Code/Copilot, Gemini CLI и других MCP-клиентов.
 
-## Установка
+Он умеет:
+
+- показывать просроченные, сегодняшние и ближайшие задачи;
+- находить задачу по ID, URL или названию;
+- безопасно сопоставлять задачу с локальным проектом;
+- подготавливать prompt для выбранного coding agent;
+- по отдельному запросу запускать Codex в новой вкладке Terminal на macOS.
+
+Сервер использует только GET-запросы к ClickUp API v2 и не меняет задачи, статусы или комментарии.
+
+## Требования
+
+- Python 3.10+;
+- ClickUp Personal API Token, начинающийся с `pk_`;
+- Git — только для клонирования репозитория;
+- MCP-клиент. Codex CLI нужен только для автоматической установки в Codex и инструмента запуска Codex.
+
+## Установка и настройка
 
 ```bash
 git clone https://github.com/stasuik/clickup-mcp.git
 cd clickup-mcp
 python3 configure.py
+```
+
+На Windows используйте `py configure.py`. Скрипт вводит токен скрыто, проверяет `/user` и `/team`, показывает доступные workspace и сохраняет конфигурацию вне репозитория.
+
+Конфигурация по умолчанию хранится в:
+
+```text
+~/.config/clickup-mcp/.env
+~/.config/clickup-mcp/project_map.json
+```
+
+На Windows это соответствует каталогу `.config/clickup-mcp` внутри профиля пользователя. Токены не добавляются в Git.
+
+## Codex
+
+```bash
 python3 install.py
 ```
 
-Создайте свой personal API token в настройках ClickUp. `configure.py` запрашивает его скрытым вводом, показывает доступные workspace и сохраняет выбор пользователя. Не отправляйте токен в чат.
+На Windows:
 
-Настройки хранятся отдельно от репозитория: `~/.config/clickup-mcp/.env`, права файла — `600`. Если конфигурация уже существует, скрипт спросит перед её заменой. Установщик регистрирует MCP через `codex mcp add` и копирует skill в `$CODEX_HOME/skills` (по умолчанию `~/.codex/skills`). Существующий сервер ClickUp или отличающийся skill не перезаписывает. Папку репозитория после установки не перемещайте.
+```powershell
+py install.py
+```
 
-Перезапустите Codex и спросите:
+Установщик регистрирует MCP через `codex mcp add` и копирует skill в `$CODEX_HOME/skills`. Перезапустите Codex после установки.
 
-- «Какие у меня задачи в ClickUp на сегодня?»
-- «Найди задачу по ссылке https://app.clickup.com/t/EXAMPLE»
-- «Определи локальный проект для этой задачи»
-- «Запусти эту задачу в новой сессии Codex»
+## Claude, Cursor, VS Code и другие агенты
 
-## Локальные проекты
+Установщик может вывести готовый MCP-конфиг с абсолютными путями и текущим Python:
+
+```bash
+python3 install.py --print-config
+```
+
+На Windows:
+
+```powershell
+py install.py --print-config
+```
+
+Скопируйте JSON в настройки MCP нужного клиента. Пример результата:
+
+```json
+{
+  "mcpServers": {
+    "clickup": {
+      "command": "/path/to/python",
+      "args": ["/path/to/clickup-mcp/clickup_mcp_server.py"]
+    }
+  }
+}
+```
+
+После подключения skill должен использовать `clickup_task_prompt` для подготовки prompt без запуска процесса. `clickup_launch_codex_for_task` предназначен только для Codex.
+
+## Локальная маршрутизация
 
 В `~/.config/clickup-mcp/project_map.json` задайте соответствие папок названиям списков, папок или задач ClickUp:
 
@@ -32,31 +91,49 @@ python3 install.py
 }
 ```
 
-Папка `my-project` должна находиться внутри выбранного каталога проектов. Образец — `project_map.example.json`. Если подходящих проектов несколько, сервер вернёт ошибку вместо запуска случайного проекта.
+Папка `my-project` должна находиться внутри каталога проектов, заданного через `CLICKUP_LOCAL_PROJECTS_ROOT` (по умолчанию `~/localhost-projects`). При неоднозначном совпадении сервер вернёт ошибку и попросит уточнить проект.
 
-Автоматическое открытие нового Terminal поддерживается на macOS (может потребоваться разрешение на управление Terminal). На Linux/Windows сервер возвращает команду для ручного запуска. Для автоматического запуска `codex` должен быть на PATH сервера; можно задать `CLICKUP_CODEX_BIN` абсолютным путём в пользовательском конфиге.
+## Инструменты MCP
 
-## Плагин
+- `clickup_setup` — показать доступные workspace и участников;
+- `clickup_current_tasks` — вернуть нормализованные задачи в JSON;
+- `clickup_task_summary` — вернуть читаемую сводку по срокам;
+- `clickup_route_task` — найти задачу и локальный проект, ничего не запускать;
+- `clickup_task_prompt` — подготовить переносимый prompt для любого coding agent;
+- `clickup_launch_codex_for_task` — Codex-адаптер с автоматическим запуском Terminal только на macOS.
 
-В репозитории также есть совместимый манифест `.codex-plugin/plugin.json`, `.mcp.json` и каталог `skills/`. Их можно использовать для подключения пакета через поддерживающий локальные плагины Codex. Основной проверяемый путь установки — скрипт выше; он подключает те же MCP и skill без зависимости от интерфейса каталога плагинов. Не устанавливайте оба варианта одновременно.
+## Переменные окружения
 
-## Настройки и инструменты
+Поддерживаются `CLICKUP_API_TOKEN` (также `CLICKUP_TOKEN`), `CLICKUP_TEAM_ID`, `CLICKUP_ASSIGNEE_ID`, `CLICKUP_STATUSES`, `CLICKUP_EXCLUDED_STATUSES`, `CLICKUP_LOOKAHEAD_DAYS`, `CLICKUP_LOCAL_PROJECTS_ROOT`, `CLICKUP_PROJECT_MAP`, `CLICKUP_AGENT_BIN` и устаревшая совместимая `CLICKUP_CODEX_BIN`.
 
-`.env.example` содержит только пустые поля и значения по умолчанию. Поддерживаются `CLICKUP_API_TOKEN` (также `CLICKUP_TOKEN`), `CLICKUP_TEAM_ID`, `CLICKUP_ASSIGNEE_ID`, `CLICKUP_STATUSES`, `CLICKUP_EXCLUDED_STATUSES`, `CLICKUP_LOOKAHEAD_DAYS`, `CLICKUP_LOCAL_PROJECTS_ROOT`, `CLICKUP_PROJECT_MAP`, `CLICKUP_CODEX_BIN`. Переменные окружения имеют приоритет над файлом. `CLICKUP_CONFIG_DIR` меняет каталог конфигурации, `CLICKUP_ENV_FILE` — путь к файлу настроек.
+`CLICKUP_CONFIG_DIR` меняет каталог конфигурации, `CLICKUP_ENV_FILE` — путь к env-файлу. Переменные окружения имеют приоритет над файлом.
 
-По умолчанию: задачи выбранного пользователя, горизонт 14 дней, закрытые и статус `done` исключены. Есть инструменты `clickup_setup`, `clickup_current_tasks`, `clickup_task_summary`, `clickup_route_task`, `clickup_launch_codex_for_task`. Сервер использует GET-запросы к официальному ClickUp API v2 и не изменяет задачи, комментарии или статусы. Наличие задач без срока в ответе зависит от фильтра срока ClickUp API.
-
-Проверка без Codex:
+## Проверка
 
 ```bash
 python3 clickup_agent.py tasks
 python3 -m unittest discover -s tests -v
+python3 scripts/check_secrets.py
 ```
 
-Обновление: `git pull`, затем перезапуск Codex. Skill при ручной установке обновляется отдельно копированием `skills/clickup-task-runner` в каталог skills Codex после просмотра изменений.
+Перед запуском с реальными данными можно проверить только handshake MCP — он не обращается к ClickUp до вызова инструмента.
 
-Удаление: `codex mcp remove clickup`, затем удалите установленный каталог skill. Пользовательские настройки остаются в `~/.config/clickup-mcp` до ручного удаления.
+## Обновление и удаление
+
+Обновление:
+
+```bash
+git pull
+```
+
+После обновления перезапустите MCP-клиент. Удаление регистрации Codex:
+
+```bash
+codex mcp remove clickup
+```
+
+Пользовательские настройки в `~/.config/clickup-mcp` удаляются отдельно и намеренно не затрагиваются установщиком.
 
 ## Секреты
 
-Токены, персональные workspace/user ID и реальные привязки проектов не поставляются. `.env` и персональный `project_map.json` исключены из Git. Не добавляйте их через `git add -f`. Проверка перед публикацией: `python3 scripts/check_secrets.py` — проверяет отслеживаемые файлы и известные форматы секретов; это дополнительная проверка, а не гарантия обнаружения произвольного секрета.
+В репозитории нет токенов, персональных workspace/user ID или реальных project mappings. Не добавляйте локальные `.env` и `project_map.json` через `git add -f`.

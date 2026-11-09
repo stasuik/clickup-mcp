@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small ClickUp task reporter for Codex."""
+"""Small ClickUp task reporter for MCP-compatible agents."""
 
 from __future__ import annotations
 
@@ -59,7 +59,17 @@ def request_json(path: str, params: list[tuple[str, str]] | None = None) -> dict
         with urllib.request.urlopen(req, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        raise SystemExit(f"ClickUp API error {exc.code}. Check token and workspace permissions.") from exc
+        body = exc.read().decode("utf-8", errors="replace").strip()
+        try:
+            payload = json.loads(body)
+            detail = payload.get("err") or payload.get("ECODE") or payload.get("message")
+        except json.JSONDecodeError:
+            detail = body[:300]
+        suffix = f": {detail}" if detail else ""
+        raise SystemExit(
+            f"ClickUp API error {exc.code} for {path}{suffix}. "
+            "Use a Personal API Token (starts with pk_) without 'Bearer '."
+        ) from exc
     except urllib.error.URLError as exc:
         raise SystemExit(f"Network error while contacting ClickUp: {exc.reason}") from exc
 
@@ -229,7 +239,7 @@ def command_setup(_: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="ClickUp task reporter for Codex.")
+    parser = argparse.ArgumentParser(description="ClickUp task reporter for MCP-compatible agents.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     setup = subparsers.add_parser("setup", help="List ClickUp workspaces and users.")

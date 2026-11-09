@@ -12,6 +12,11 @@ def main():
     token = getpass.getpass('ClickUp personal API token (hidden): ').strip()
     if not token:
         raise SystemExit('Token is required; nothing saved.')
+    if not token.startswith('pk_'):
+        raise SystemExit(
+            "Expected a ClickUp Personal API Token starting with 'pk_'. "
+            "Do not paste 'Bearer ', an OAuth token, or an app secret."
+        )
     os.environ['CLICKUP_API_TOKEN'] = token
     user = api.request_json('/user')['user']
     teams = api.request_json('/team').get('teams', [])
