@@ -210,6 +210,7 @@ def route_task(arguments: dict[str, Any]) -> dict[str, Any]:
         "match": match,
         "prompt": prompt,
         "command": command,
+        "command_args": [AGENT_BIN, prompt],
         "agent_command": AGENT_BIN,
     }
 
